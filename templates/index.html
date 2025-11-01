@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        [x-cloak] { display: none !important; }
+        .whitespace-pre-line { white-space: pre-line; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .hover-scale { transition: transform 0.2s; }
+        .hover-scale:hover { transform: scale(1.02); }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50">
+    <div x-data="{
+        isDragging: false,
+        file: null,
+        processing: false,
+        result: null,
+        error: null,
+        previewUrl: null,
+        activeTab: 'basic_info',
+
+        formatCurrency(amount, currency = 'USD') {
+            return new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: currency,
+                minimumFractionDigits: 2
+            }).format(amount);
+        },
+
+        formatDate(dateStr) {
+            if (!dateStr) return '';
+            return new Date(dateStr).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        },
+
+        formatValue(value, type, currency) {
+            if (value === null || value === undefined) return 'N/A';
+            switch (type) {
+                case 'currency':
+                    return this.formatCurrency(value, currency);
+                case 'date':
+                    return this.formatDate(value);
+                case 'percentage':
+                    return `${value}%`;
+                case 'phone':
+                    return value;
+                case 'email':
+                    return `<a href='mailto:${value}' class='text-blue-600 hover:text-blue-800'>${value}</a>`;
+                case 'url':
+                    return `<a href='${value}' target='_blank' class='text-blue-600 hover:text-blue-800'>${value}</a>`;
+                default:
+                    return value;
+            }
+        },
+
+        handleDrop(e) {
+            this.isDragging = false;
+            this.handleFiles(e.dataTransfer.files);
+        },
+
+        handleFileSelect(e) {
+            this.handleFiles(e.target.files);
+        },
+
+        handleFiles(files) {
+            if (!files.length) return;
+            
+            const file = files[0];
+            if (!['image/jpeg', 'image/png', 'application/pdf'].includes(file.type)) {
+                this.error = 'Please select a JPEG, PNG or PDF file';
+                return;
+            }
+            
+            this.file = file;
+            this.error = null;
+            this.result = null;
+            
+            if (file.type.startsWith('image/')) {
+                this.previewUrl = URL.createObjectURL(file);
+            } else {
+                this.previewUrl = null;
+            }
+        },
+
+        async processFile() {
+            if (!this.file) return;
+            
+            this.processing = true;
+            this.error = null;
+            this.result = null;
+            
+            const formData = new FormData();
+            formData.append('file', this.file);
+            
+            try {
+                const response = await fetch('/api/v1/process', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Upload failed');
+                }
+                
+                this.result = await response.json();
+                this.activeTab = 'basic_info';
+            } catch (err) {
+                this.error = err.message;
+                console.error('Error:', err);
+            } finally {
+                this.processing = false;
+            }
+        }
+    }" class="p-6 md:p-8">
+
+        <!-- Header -->
+        <header class="max-w-6xl mx-auto mb-8">
+            <div class="flex justify-between items-center">
+                <div>
+                    <h1 class="text-4xl font-bold text-gray-900">{{ title }}</h1>
+                    <p class="mt-2 text-lg text-gray-600">Upload an invoice to extract information automatically</p>
+                </div>
+                <div class="text-sm text-gray-500">Version {{ version }}</div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="max-w-6xl mx-auto">
+            <!-- Upload Section -->
+            <div class="bg-white rounded-2xl shadow-lg p-6 mb-8 hover-scale">
+                <div class="border-2 border-dashed border-gray-300 rounded-xl p-6"
+                     :class="{ 'border-blue-500 bg-blue-50': isDragging }"
+                     @dragenter.prevent="isDragging = true"
+                     @dragleave.prevent="isDragging = false"
+                     @dragover.prevent
+                     @drop.prevent="handleDrop($event)">
+                    
+                    <input type="file" 
+                           x-ref="fileInput" 
+                           class="hidden" 
+                           @change="handleFileSelect"
+                           accept="image/jpeg,image/png,application/pdf">
+                    
+                    <template x-if="!file">
+                        <div class="text-center">
+                            <div class="mx-auto h-16 w-16 mb-4 text-blue-500">
+                                <i class="fas fa-cloud-upload-alt fa-3x"></i>
+                            </div>
+                            <h3 class="text-lg font-medium text-gray-900 mb-2">Upload Invoice</h3>
+                            <p class="text-gray-600 mb-4">
+                                Drag and drop your invoice here, or 
+                                <button @click="$refs.fileInput.click()" 
+                                        class="text-blue-500 hover:text-blue-700 font-medium">
+                                    browse
+                                </button>
+                            </p>
+                            <p class="text-sm text-gray-500">Supports JPEG, PNG and PDF</p>
+                        </div>
+                    </template>
+
+                    <template x-if="file">
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                                <div class="flex items-center space-x-3">
+                                    <i class="fas fa-file-alt text-gray-400 text-2xl"></i>
+                                    <div>
+                                        <div class="text-sm font-medium text-gray-900" x-text="file.name"></div>
+                                        <div class="text-xs text-gray-500" x-text="(file.size/1024/1024).toFixed(2) + ' MB'"></div>
+                                    </div>
+                                </div>
+                                <div class="flex items-center space-x-3">
+                                    <button @click="processFile" 
+                                            :disabled="processing"
+                                            class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                                        <template x-if="!processing">
+                                            <span><i class="fas fa-cog mr-2"></i>Process Invoice</span>
+                                        </template>
+                                        <template x-if="processing">
+                                            <span><i class="fas fa-spinner fa-spin mr-2"></i>Processing...</span>
+                                        </template>
+                                    </button>
+                                    <button @click="file = null; previewUrl = null" 
+                                            class="text-gray-400 hover:text-gray-600">
+                                            <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <template x-if="previewUrl">
+                                <img :src="previewUrl" class="max-h-64 mx-auto rounded-lg shadow-md">
+                            </template>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <div x-show="result" x-cloak>
+                <div x-show="result.success" class="bg-white rounded-2xl shadow-lg p-6 space-y-6 fade-in">
+                    <!-- Tabs -->
+                    <div class="border-b border-gray-200">
+                        <nav class="flex space-x-8 overflow-x-auto">
+                            <button class="py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap"
+                                    :class="activeTab === 'basic_info' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                    @click="activeTab = 'basic_info'">
+                                Basic Information
+                            </button>
+                            <button class="py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap"
+                                    :class="activeTab === 'amounts' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                    @click="activeTab = 'amounts'">
+                                Amount Details
+                            </button>
+                            <button class="py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap"
+                                    :class="activeTab === 'line_items' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                    @click="activeTab = 'line_items'">
+                                Line Items
+                            </button>
+                        </nav>
+                    </div>
+
+                        <!-- Content Sections -->
+                    <!-- Basic Information Section -->
+                    <div x-show="activeTab === 'basic_info'" class="space-y-6 fade-in">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div class="bg-gray-50 rounded-lg p-4 hover-scale">
+                                <div class="text-sm font-medium text-gray-500">Vendor Name</div>
+                                <div class="mt-1 text-gray-900" x-text="result.parsed_data.basic_info.vendor"></div>
+                            </div>
+                            <div class="bg-gray-50 rounded-lg p-4 hover-scale">
+                                <div class="text-sm font-medium text-gray-500">Invoice Number</div>
+                                <div class="mt-1 text-gray-900" x-text="result.parsed_data.basic_info.invoice_number"></div>
+                            </div>
+                            <div class="bg-gray-50 rounded-lg p-4 hover-scale">
+                                <div class="text-sm font-medium text-gray-500">Invoice Date</div>
+                                <div class="mt-1 text-gray-900" x-text="formatDate(result.parsed_data.basic_info.date)"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Amounts Section -->
+                    <div x-show="activeTab === 'amounts'" class="space-y-6 fade-in">
+                        <!-- Tax Registration -->
+                        <div x-show="result.parsed_data.tax_info.gstin" class="bg-gray-50 rounded-lg p-4">
+                            <div class="text-sm font-medium text-gray-500">GSTIN</div>
+                            <div class="mt-1 text-gray-900 font-mono" x-text="result.parsed_data.tax_info.gstin"></div>
+                        </div>
+
+                        <!-- Amount Details Grid -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <!-- Subtotal -->
+                            <div class="bg-gray-50 rounded-lg p-4 hover-scale">
+                                <div class="text-sm font-medium text-gray-500">Subtotal</div>
+                                <div class="mt-1 text-gray-900" 
+                                     x-text="formatCurrency(result.parsed_data.amounts.subtotal, result.parsed_data.amounts.currency)">
+                                </div>
+                            </div>
+
+                            <!-- Tax Details -->
+                            <template x-for="tax in result.parsed_data.tax_info.tax_details" :key="tax.type">
+                                <template x-if="tax.rate > 0 || tax.amount > 0">
+                                    <div class="bg-gray-50 rounded-lg p-4 hover-scale">
+                                        <div class="text-sm font-medium text-gray-500" x-text="tax.type"></div>
+                                        <div class="mt-1">
+                                            <div class="text-gray-900" x-text="tax.rate + '%'"></div>
+                                            <div class="text-gray-900" 
+                                                 x-text="formatCurrency(tax.amount, result.parsed_data.amounts.currency)">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </template>
+
+                            <!-- Total Tax -->
+                            <div class="bg-gray-50 rounded-lg p-4 hover-scale">
+                                <div class="text-sm font-medium text-gray-500">Total Tax</div>
+                                <div class="mt-1 text-gray-900" 
+                                     x-text="formatCurrency(result.parsed_data.tax_info.total_tax, result.parsed_data.amounts.currency)">
+                                </div>
+                            </div>
+
+                            <!-- Total Amount -->
+                            <div class="bg-blue-50 rounded-lg p-4 hover-scale col-span-full">
+                                <div class="text-sm font-medium text-gray-500">Total Amount</div>
+                                <div class="mt-1 text-gray-900 text-xl font-semibold" 
+                                     x-text="formatCurrency(result.parsed_data.amounts.total, result.parsed_data.amounts.currency)">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Line Items Section -->
+                    <div x-show="activeTab === 'line_items'" class="space-y-6 fade-in">
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unit Price</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tax Rate</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tax Amount</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <template x-for="(item, index) in result.parsed_data.items" :key="index">
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-6 py-4 whitespace-pre-line text-sm text-gray-900" x-text="item.description"></td>
+                                            <td class="px-6 py-4 text-sm text-gray-900" x-text="item.quantity"></td>
+                                            <td class="px-6 py-4 text-sm text-gray-900" x-text="formatCurrency(item.unit_price, result.parsed_data.amounts.currency)"></td>
+                                            <td class="px-6 py-4 text-sm text-gray-900" x-text="item.tax_rate + '%'"></td>
+                                            <td class="px-6 py-4 text-sm text-gray-900" x-text="formatCurrency(item.tax_amount, result.parsed_data.amounts.currency)"></td>
+                                            <td class="px-6 py-4 text-sm text-gray-900" x-text="formatCurrency(item.amount, result.parsed_data.amounts.currency)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                                <tfoot class="bg-gray-50">
+                                    <tr>
+                                        <td colspan="3" class="px-6 py-4 text-sm font-medium text-gray-900 text-right">Total:</td>
+                                        <td class="px-6 py-4 text-sm font-medium text-gray-900" x-text="formatCurrency(result.parsed_data.amounts.total, result.parsed_data.amounts.currency)"></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Processing Info -->
+                    <div class="mt-6 pt-4 border-t border-gray-200">
+                        <div class="flex items-center justify-between text-sm text-gray-500">
+                            <div>
+                                Processing Time: <span class="font-medium" x-text="result.parsed_data.metadata.processing_time.toFixed(2) + 's'"></span>
+                            </div>
+                            <div>
+                                Confidence Score: <span class="font-medium" x-text="result.parsed_data.metadata.confidence_score + '%'"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                        <!-- Metadata -->
+                        <div class="border-t pt-4 mt-4">
+                            <div class="text-sm text-gray-500">
+                                Processed in <span class="font-medium" x-text="result.parsed_data.metadata.processing_time + 's'"></span> |
+                                Confidence: <span class="font-medium" x-text="result.parsed_data.metadata.confidence_score + '%'"></span>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Error Message -->
+            <div x-show="error" x-cloak 
+                 class="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl fade-in">
+                <div class="flex items-center text-red-700">
+                    <i class="fas fa-exclamation-circle mr-2"></i>
+                    <span x-text="error"></span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <footer class="max-w-6xl mx-auto mt-8 text-center text-sm text-gray-500">
+        <p>© 2025 Invoice Reader. All rights reserved.</p>
+    </footer>
+</body>
+</html>
